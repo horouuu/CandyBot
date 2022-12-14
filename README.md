@@ -119,3 +119,9 @@ $student Maki
 $student Aru (New Year)
 $student Shiroko (Riding)
 ```
+
+
+# TODO:
+- Make all commands discord-tag compatible
+- Add "clear" commands to `status` and `skillsupdate`
+- Possibly lock `skillsupdate` to registered Discord ID?
