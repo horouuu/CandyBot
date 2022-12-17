@@ -118,10 +118,25 @@ Will take student names with whitespaces and brackets to accommodate for seasona
 $student Maki
 $student Aru (New Year)
 $student Shiroko (Riding)
+```  
+  
+## rolls
+**Format:** `rolls [number] [type] [rate]`  
+   
+Finds the number of rolls required to guarantee a certain rate of getting a number of featured/spook characters.  
+Note that "spook" characters means a **specific** character to spook, hence having a rate of 0.0005 instead of 0.018 on featured banners, or the normal 0.25 on the standard banner.  
+Takes a range of numbers from 0 to 1 **or** a percentage value from 0% to 100% **non-inclusive**.
+### Example usage:  
 ```
-
-
+$rolls 5 featured 0.9
+$rolls 1 spook 0.3  
+$rolls 3 featured 85%
+$rolls 1 spook 45%
+```  
+  
+  
 # TODO:
-- Make all commands discord-tag compatible
-- Add "clear" commands to `status` and `skillsupdate`
+- ~~Make all commands discord-tag compatible~~
+- ~~Add "clear" commands to `status`~~ and `skillsupdate`
 - Possibly lock `skillsupdate` to registered Discord ID?
+- Migrate to slash commands
