@@ -2,6 +2,7 @@ require("dotenv").config();
 const {Client, GatewayIntentBits, discordSort, MessageManager, channelLink, Guild} = require("discord.js");
 const {google} = require("googleapis");
 const { EmbedBuilder } = require('discord.js');
+const binomial = require('binomial')
 const nodemon = require("nodemon");
 
 const prefix = "$";
@@ -15,6 +16,18 @@ const client = new Client({
     ]
 });
 
+function getId(string) {
+    const idFormatRegex = (/^(<@)[0-9]{18}>$/g)
+    const idRegex = (/[<>@]/g)
+    const idStatus = idFormatRegex.test(string)
+
+    if (idStatus == false) {
+        return null
+    } else {
+        return string.replace(idRegex, "")
+    }
+}
+
 function getBracketTerm(string) {
     const bracketRegex = (/\(.[^\(]+\)/)
     let bracketTerm = string.match(bracketRegex)
@@ -23,9 +36,7 @@ function getBracketTerm(string) {
     }
     
     bracketTerm = "(" + bracketTerm[0].replace(/[\)\()]/g, "").trim() + ")"
-    console.log(bracketTerm)
     const bracketTermLeft = bracketTerm.match(/^\(.+\s{1}/)
-    console.log(bracketTermLeft)
     if (bracketTermLeft == null) {
         return bracketTerm
     }
@@ -144,7 +155,7 @@ async function isRegistered(id) {
             return [true, rowData[i][1]]
         }
     }
-    return false
+    return [false, id]
 }
 
 async function register(username, id) {
@@ -234,8 +245,6 @@ async function characterRowSearch(sheetRange, member, message) {
         spreadsheetId,
         range: sheetRange
     })
-    //console.log(rows.data.values)
-
     const rowData = rows.data.values
 
     try {
@@ -244,7 +253,7 @@ async function characterRowSearch(sheetRange, member, message) {
                 return [rowData[i], i]
             }
         }
-        await message.reply("Error: Member \`" + member + "\` not found.")
+        return null
 
     } catch(err) {
         console.log(err, "*");
@@ -271,7 +280,8 @@ async function memberRowSearch(member, message) {
 }
 
 client.once("ready", async () => {
-    await start()
+    await start() // Google sheets initialization, etc.
+
     client.user.setPresence({
         status: "online",
         activities: [{
@@ -285,8 +295,42 @@ client.once("ready", async () => {
         "CandyBot logged in with user:\n" + client.user.tag + " | " + client.user + "\n\n" +
         "***********************************************************"
     );
+
+
+    // Slash commands initialization
+    const testGuildId = process.env.NEETCAVE
+    const testGuild = client.guilds.cache.get(testGuildId)
+
+    let commands;
+
+    if (testGuild) {
+        commands = testGuild.commands
+    } else {
+        commands = client.application.commands
+    }
+
+    commands.create({
+        name: "test",
+        description: "testing"
+    })
+
 });
 
+client.on('interactionCreate', async (interaction) => {
+    if (!interaction.isCommand()) {
+        return
+    }
+
+    const { commandName, options } = interaction
+
+    switch (commandName) {
+        case "test":
+            interaction.reply({
+                content: "test",
+                ephemeral: true
+            })
+    }
+})
 
 client.on("messageCreate", async (message) => {
 
@@ -310,7 +354,8 @@ client.on("messageCreate", async (message) => {
         const investmentCmd = "student"
         const awayCmd = "away"
         const registerCmd = "register"
-
+        const findRollsCmd = "rolls"
+        
 
         switch (splitMessage[0].substring(1).toLowerCase()) {
             case "test":
@@ -343,8 +388,10 @@ client.on("messageCreate", async (message) => {
 
                 const statusUpdateCmdHelp =
                 "Updates the status of a member. Enclose the status with quotation marks (\").\n" +
+                "Write \`clear\` **without** quotation marks to clear their status instead.\n" +
                 "\`" + prefix + statusUpdateCmd + " [username] \"status\"\`\n" +
-                "\`" + prefix + statusUpdateCmd + " Coronne \"Finishing essays\"\`"
+                "\`" + prefix + statusUpdateCmd + " Coronne \"Finishing essays\"\`\n" +
+                "\`" + prefix + statusUpdateCmd + " Coronne clear\`"
 
                 const awayCmdHelp = 
                 "Shows all members with a written \`Note\` on the Google Sheets.\n" +
@@ -352,8 +399,14 @@ client.on("messageCreate", async (message) => {
 
                 const registerCmdHelp =
                 "Registers your Discord ID to a Blue Archive username on the Google Sheets. \n" +
-                "\`" + prefix + registerCmd + "\`\n" +
+                "\`" + prefix + registerCmd + " [username]\`\n" +
                 "\`" + prefix + registerCmd + " Coronne" + "\`"
+
+                const findRollsCmdHelp =
+                "Finds how many rolls it takes to guarantee a certain chance of getting at least \`n\` featured/spook characters.\n" +
+                "\`" + prefix + findRollsCmd + " [number] [type] [chance]\`\n" +
+                "\`" + prefix + findRollsCmd + " 3 featured 90%\`\n" +
+                "\`" + prefix + findRollsCmd + " 2 spook 0.5\`"
 
                 // New reply command
                 const helpEmbed = new EmbedBuilder()
@@ -368,7 +421,8 @@ client.on("messageCreate", async (message) => {
                         { name: prefix + memberCmd, value: memberCmdHelp },
                         { name: prefix + statusUpdateCmd, value: statusUpdateCmdHelp },
                         { name: prefix + awayCmd, value: awayCmdHelp },
-                        { name: prefix + registerCmd, value: registerCmdHelp }
+                        { name: prefix + registerCmd, value: registerCmdHelp },
+                        { name: prefix + findRollsCmd, value: findRollsCmdHelp}
 	                )
 	                .setTimestamp()
 	                .setFooter({ text: 'Requested by: ' + message.author.tag, iconURL: message.author.displayAvatarURL() });
@@ -380,32 +434,42 @@ client.on("messageCreate", async (message) => {
                 // END
                 break;
             
+            // Member
             case memberCmd:
                 if (splitMessage.length <= 1) {
                     await message.reply("Please use the command with the following format: \`" + prefix + memberCmd + " [in-game username]\`")
                     return
                 }
                 
-                const idFormatRegex = (/^(<@)[0-9]{18}>$/g)
-                const idRegex = (/[<>@]/g)
-                const idStatus = idFormatRegex.test(splitMessage[1])
+                // 1st parameter ID check
+                let memberName = splitMessage[1]
 
-                if (idStatus == true) {
-                    const id = splitMessage[1].replace(idRegex, "")
-                    const registerData = await isRegistered(id)
-                    if (registerData == false) {
-                        message.reply("User <@" + id + "> is not registered to any username on the sheets.")
+                const idData = getId(memberName)
+                if (idData != null) {
+                    const registerData = await isRegistered(idData)
+                    console.log(registerData)
+                    if (registerData[0] == false) {
+                        message.reply("User <@" + registerData[1] + "> is not registered to any username on the sheets.")
                         return
                     } else {
-                        splitMessage[1] = registerData[1]
+                        memberName = registerData[1]
                     }
                 } 
 
+                // Try-catch block to ensure bot doesn't crash if any errors occur here
                 try {
-                    let row = await memberRowSearch(splitMessage[1], message);
-                    const characterNamesRed = await charSearch(redSheet, characters[0], splitMessage[1])
-                    const characterNamesBlue = await charSearch(blueSheet, characters[1], splitMessage[1])
-                    const characterNamesYellow = await charSearch(yellowSheet, characters[2], splitMessage[1])
+
+                    // Check if member exists
+                    let memberRow = await memberRowSearch(memberName, message);
+                    if (memberRow.length == 0) {
+                        await message.reply("Member \`" + memberName + "\` not found.")
+                        return
+                    }
+
+                    // Find all characters with valid entries in member's row
+                    const characterNamesRed = await charSearch(redSheet, characters[0], memberName)
+                    const characterNamesBlue = await charSearch(blueSheet, characters[1], memberName)
+                    const characterNamesYellow = await charSearch(yellowSheet, characters[2], memberName)
                     const memCharNames = [characterNamesRed, characterNamesBlue, characterNamesYellow]
                     for (let i = 0; i < memCharNames.length; i++) {
                         if (memCharNames[i].length == 0) {
@@ -415,19 +479,16 @@ client.on("messageCreate", async (message) => {
                     let charEmbedRed = characterNamesRed.join("\n")
                     let charEmbedBlue = characterNamesBlue.join("\n")
                     let charEmbedYellow = characterNamesYellow.join("\n")
-                
-                    if (row.length == 0) {
-                        await message.reply("Member \`" + splitMessage[1] + "\` not found.")
-                        return
-                    }
-                    row = row[0]
-                    if (row[2].length == 0 || row[2].trim().length < 1 || typeof row[2] === "undefined") {
-                        row[2] = "N/A"
+                    
+                    
+                    memberRow = memberRow[0]
+                    if (memberRow[2].length == 0 || memberRow[2].trim().length < 1 || typeof memberRow[2] === "undefined") {
+                        memberRow[2] = "Available"
                     }
                     let username;
                     let avatarUrl;
                     try {
-                        const user = await candyHouse.members.fetch(row[4])
+                        const user = await candyHouse.members.fetch(memberRow[4])
                         username = user.user.username + "#" + user.user.discriminator
                         avatarUrl = user.displayAvatarURL()
                     } catch (err) {
@@ -437,11 +498,11 @@ client.on("messageCreate", async (message) => {
                     }
                     const memberEmbed = new EmbedBuilder()
                         .setColor(0x0099FF)
-                        .setTitle(row[1])
+                        .setTitle(memberRow[1])
                         .setThumbnail(avatarUrl)
                         .addFields(
-                            { name: 'Status', value: row[2], inline: true },
-                            { name: 'Join date', value: row[3].toString() + "\n", inline: true },
+                            { name: 'Status', value: memberRow[2], inline: true },
+                            { name: 'Join date', value: memberRow[3].toString() + "\n", inline: true },
                             { name: 'Discord', value: username, inline: true },
                             { name: "\u200B", value: "\u200B"}
                         )
@@ -463,22 +524,76 @@ client.on("messageCreate", async (message) => {
                 // END
                 break;
 
+            // Status update
             case statusUpdateCmd:
                 if (splitMessage.length < 3) {
                     await message.reply(
-                        "Error: Not enough parameters. Please use the command as follows:" +
+                        "Not enough parameters. Please use the command as follows:\n" +
                         "\`" + prefix + statusUpdateCmd + " [member name] \"[update]\"\`"
                         )
+                } else if (splitMessage[2].toLowerCase() === "clear") {  // Code block for "clear" command.
+
+                    // 1st parameter ID check
+                    let memberName = splitMessage[1]
+
+                    const idData = getId(memberName)
+                    if (idData != null) {
+                        const registerData = await isRegistered(idData)
+                        if (registerData[0] == false) {
+                            message.reply("User <@" + registerData[1] + "> is not registered to any username on the sheets.")
+                            return
+                        } else {
+                            memberName = registerData[1]
+                        }
+                    }
+
+                    let memberRow = await memberRowSearch(memberName, message)
+
+                    if (memberRow.length == 0) {
+                        await message.reply("Member \`" + memberName + "\` not found.")
+                        return
+                    }
+
+                    const index = memberRow[1] + 3
+                    memberRow = memberRow[0]
+
+                    statusBox = "CandyHouse!D" + index
+                    await rowWrite(statusBox, [[""]], "RAW")
+
+                    message.reply("Successfully cleared status for user \`" + memberName + "\`.")
+
+                    // Update member sheet
+                    memberSheet = await googleSheets.spreadsheets.values.get({
+                        auth,
+                        spreadsheetId,
+                        range: memberRange
+                    })
                 } else {
-                    try {
-                        const memberName = splitMessage[1]
-                        let row = await memberRowSearch(memberName, message)
-                        const index = row[1] + 3
-                        row = row[0]
+
+                    try { // Try-catch to ensure bot stays alive
+
+                        // 1st parameter ID check
+                        let memberName = splitMessage[1]
+
+                        const idData = getId(memberName)
+                        if (idData != null) {
+                            const registerData = await isRegistered(idData)
+                            if (registerData[0] == false) {
+                                message.reply("User <@" + registerData[1] + "> is not registered to any username on the sheets.")
+                                return
+                            } else {
+                                memberName = registerData[1]
+                            }
+                        }
+
+                        // Check if member exists
+                        let memberRow = await memberRowSearch(memberName, message)
+                        const index = memberRow[1] + 3
+                        memberRow = memberRow[0]
                         let msg = message.content.split("\"")
                         if (msg.length < 2 || message.content.slice(-1) !== "\"" || msg[1].length < 1 || message.content.split("\"")[1].trim().length < 1) {
                             await message.reply(
-                                "Error. Please use the command with the following format:\n" +
+                                "Please use the command with the following format:\n" +
                                 "\`" + prefix + statusUpdateCmd + " [member name] \"status\"\`\n" +
                                 "Please ensure that the status is encased with quotation marks (\")."
                             )
@@ -489,7 +604,7 @@ client.on("messageCreate", async (message) => {
                             msg = msg[1]
                             await rowWrite(statusBox, [[msg]], "RAW")
                             await message.reply(
-                                "Status for user \`" + row[1] + "\` successfully updated to:\n" +
+                                "Status for user \`" + memberRow[1] + "\` successfully updated to:\n" +
                                 "> " + msg
                             )
                             // Update member sheet
@@ -516,10 +631,24 @@ client.on("messageCreate", async (message) => {
                         "\`" + prefix + weaponStatusCmd + " [member name] [student name]\`"
                         )
                 } else {
+                    
+                    // Ensures bot doesn't crash on error
                     try {
                         let characterName = splitMessage[2]
-                        const memberName = splitMessage[1]
                         
+                        // 1st parameter ID check
+                        let memberName = splitMessage[1]
+                        const idData = getId(memberName)
+                        if (idData != null) {
+                            const registerData = await isRegistered(idData)
+                            if (registerData[0] == false) {
+                                message.reply("User <@" + registerData[1] + "> is not registered to any username on the sheets.")
+                                return
+                            } else {
+                                memberName = registerData[1]
+                            }
+                        }
+
                         if (splitMessage.length > 3) {
                             const bracketTerm = getBracketTerm(message.content)
                             if (bracketTerm !== null) {
@@ -527,8 +656,8 @@ client.on("messageCreate", async (message) => {
                             }
                         }
 
+                        // Check if character exists
                         characterName = characterName.toLowerCase()
-
                         if (typeof characterMap[characterName] === 'undefined') {
                             await message.reply("Character \`" + characterName + "\` not found.")
                             return
@@ -538,15 +667,16 @@ client.on("messageCreate", async (message) => {
                         const index = characterMap[characterName][1] + 1
                         const characterRange = characterMap[characterName][2]
                         
-    
+                        // Check if member exists
                         let row = await characterRowSearch(characterRange, memberName, message)
-                        
-                        if (typeof row !== "undefined"){
+                        if (row != null){
                             row = row[0]
                         } else {
+                            await message.reply("Member \`" + memberName + "\` not found.")
                             return
                         }
 
+                        // Check if member has character
                         if (index > row.length-1) {
                             await message.reply(
                                 "Player \`" + row[0] + "\` does not own character \`" + characterNameRaw + "\`."
@@ -585,7 +715,19 @@ client.on("messageCreate", async (message) => {
                     try {
                         let msg = message.content.split("\"")
                         let characterName = splitMessage[2]
+
+                        // 1st parameter ID check
                         let memberName = splitMessage[1]
+                        const idData = getId(memberName)
+                        if (idData != null) {
+                            const registerData = await isRegistered(idData)
+                            if (registerData[0] == false) {
+                                message.reply("User <@" + registerData[1] + "> is not registered to any username on the sheets.")
+                                return
+                            } else {
+                                memberName = registerData[1]
+                            }
+                        }
                         
                         const bracketTerm = getBracketTerm(message.content)
                         if (bracketTerm !== null) {
@@ -604,7 +746,7 @@ client.on("messageCreate", async (message) => {
                             
                         } else {
                             msg = msg[1]
-    
+                            
                             if (typeof characterMap[characterName] === 'undefined') {
                                 await message.reply("Character \`" + characterName + "\` not found.")
                                 return
@@ -613,8 +755,13 @@ client.on("messageCreate", async (message) => {
                             const characterNameRaw = characterMap[characterName][0]
                             const colIndex = characterMap[characterName][1] + 3
                             const characterRange = characterMap[characterName][2]
-    
+                            
                             const rowData = await characterRowSearch(characterRange, memberName, message)
+                            if (rowData == null) {
+                                await message.reply("Member \`" + memberName + "\` not found.")
+                                return
+                            }
+
                             const playerNameRaw = rowData[0][0]
                             const rowIndex = rowData[1] + 4
                             const writeRange = characterRange.split("!")[0] + "!R" + rowIndex + "C" + colIndex
@@ -776,6 +923,72 @@ client.on("messageCreate", async (message) => {
 
                 // END
                 break;
+
+
+
+            // Find rolls command
+            case findRollsCmd:
+                
+                if (splitMessage.length == 4) {
+                    
+                    // Check and validate [number] input
+                    let pullRate;
+                    let desiredNumber = splitMessage[1]
+                    desiredNumber = parseInt(desiredNumber)
+                    if (isNaN(desiredNumber)) {
+                        message.reply("\`" + splitMessage[1] + "\` is not a valid integer.")
+                    } else if (desiredNumber > 100) {
+                        message.reply(
+                            "Uh-oh! You've entered a number above 100!\n" +
+                            "What do you need all those characters for?"
+                        )
+                        return
+                    }
+
+                    let featuredStatus = splitMessage[2]
+                    featuredStatus = String(featuredStatus)
+                    if (featuredStatus === "featured") {
+                        pullRate = 0.007
+                    } else if (featuredStatus === "spook") {
+                        pullRate = 0.0005
+                    } else {
+                        message.reply(
+                            "\`" + splitMessage[2] + "\` is not a valid character type.\n" +
+                            "You can choose between \`featured\` or \`spook\`."
+                        )
+                    }
+
+                    // Check for percentage input
+                    let desiredRate = splitMessage[3]
+                    if ((/[%]$/g).test(desiredRate) == true) {
+                        desiredRate = desiredRate.replace(/[%]$/g, "")
+                        desiredRate = parseInt(desiredRate)/100
+                    }
+                    
+                    if (isNaN(desiredRate)) {
+                        message.reply("`" + splitMessage[3] + "` is not a valid probability.")
+                        return
+                    } else if (desiredRate >= 1 || desiredRate <= 0) {
+                        message.reply("You cannot input a probability below 0% or above 100%!")
+                        return
+                    } else {
+                        let n = desiredNumber;
+                        let rate = 0;
+                        while (rate < desiredRate) {
+                            rate = 1
+                            for (let k = 0; k < desiredNumber; k++) {
+                                rate -= binomial.get(n, k)*(pullRate**k)*( (1-pullRate)**(n-k) )
+                            }
+                            n += 1
+                        }
+                        
+                        desiredRate = String(desiredRate*100) + "%"
+                        message.reply(
+                            "You need to roll \`at least " + n + " times\` in order to guarantee a \`" + desiredRate + " chance\` of rolling " +
+                            "\`at least " + desiredNumber + "\` " + featuredStatus + " characters."
+                        )
+                    }
+                }
         }
     };
 });
