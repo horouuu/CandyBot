@@ -12,7 +12,8 @@ const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildMembers 
     ]
 });
 
@@ -316,6 +317,8 @@ client.once("ready", async () => {
 
 });
 
+
+// Interaction responses 
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isCommand()) {
         return
@@ -447,7 +450,6 @@ client.on("messageCreate", async (message) => {
                 const idData = getId(memberName)
                 if (idData != null) {
                     const registerData = await isRegistered(idData)
-                    console.log(registerData)
                     if (registerData[0] == false) {
                         message.reply("User <@" + registerData[1] + "> is not registered to any username on the sheets.")
                         return
@@ -857,7 +859,6 @@ client.on("messageCreate", async (message) => {
 
             case awayCmd:
                 const away = await awaySearch(memberRange)
-                console.log(away)
                 if (away.length > 0) {
                     let msg = ""
                     for (let i = 0; i < away.length; i++) {
@@ -989,6 +990,9 @@ client.on("messageCreate", async (message) => {
                         )
                     }
                 }
+
+                // END
+                break;
         }
     };
 });
