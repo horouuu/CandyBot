@@ -140,3 +140,4 @@ $rolls 1 spook 45%
 - ~~Add "clear" commands to `status`~~ and `skillsupdate`
 - Possibly lock `skillsupdate` to registered Discord ID?
 - Migrate to slash commands
+- Refactor code!!!!
