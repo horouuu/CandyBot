@@ -3,6 +3,7 @@ Discord bot + Google Sheets API for the club "CandyHouse" on Blue Archive.
 A project I started on 13/12/22 for some coding practice (and to freshen up on JavaScript).  
   
 Created with Discord API, Google Sheets API, as well as Node.js.
+Currently breaking up the code into modules. A LOT of refactoring in progress.
 
 ### Terminology
 + **Student:** What Blue Archive players call their characters.  
