@@ -4,6 +4,7 @@ A project I started on 13/12/22 for some coding practice (and to freshen up on J
   
 Created with Discord API, Google Sheets API, as well as Node.js.  
 ~~Currently breaking up the code into modules. A LOT of refactoring in progress.~~
+
 V2 currently in development: https://github.com/horouuu/CandyBot-V2
 
 ### Terminology
